@@ -254,7 +254,7 @@ app.post("/api/order/:orderId/note", async (req, res) => {
     const { orderId } = req.params;
     const { note } = req.body;
     if (!note) return res.status(400).json({ error: "note required" });
-    const { status, data } = await smFetch("/order/" + orderId + "/message", {
+    const { status, data } = await smFetch("/conversation", {
       method: "POST",
       body: JSON.stringify({ note })
     });
