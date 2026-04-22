@@ -1,12 +1,10 @@
 const express = require("express");
 const cors = require("cors");
 const fetch = require("node-fetch");
-
 const app = express();
 const PORT = process.env.PORT || 3001;
 const SM_API_KEY = process.env.SHOPMONKEY_API_KEY;
 const SM_BASE = "https://api.shopmonkey.cloud/v3";
-
 app.use(cors({ origin: "*" }));
 app.use(express.json());
 
@@ -23,6 +21,17 @@ async function smFetch(path, options = {}) {
   const data = await res.json();
   return { status: res.status, data };
 }
+
+app.get("/api/order/debug", async (req, res) => {
+  try {
+    const number = req.query.number;
+    const { status, data } = await smFetch("/order?filter=number%3D%3D" + encodeURIComponent(number));
+    const order = data && data.data && data.data[0];
+    res.json({ status, order });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
 
 app.get("/api/order/lookup", async (req, res) => {
   try {
