@@ -1,17 +1,3 @@
-
-app.post("/api/order/:orderId/note", async (req, res) => {
-  try {
-    const { orderId } = req.params;
-    const { note } = req.body;
-    if (!note) return res.status(400).json({ error: "note required" });
-    const { status, data } = await smFetch("/order/" + orderId + "/note", {
-      method: "POST",
-      body: JSON.stringify({ note })
-    });
-    res.json({ ok: status >= 200 && status < 300, smStatus: status, data: data.data, message: data.message });
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
 const express = require("express");
 const cors = require("cors");
 const fetch = require("node-fetch");
@@ -259,6 +245,20 @@ app.post("/api/order/:orderId/recommendations", async (req, res) => {
       results.push({ label, success: partRes.status >= 200 && partRes.status < 300, smStatus: partRes.status });
     }
     res.json({ ok: true, serviceId, results });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+
+app.post("/api/order/:orderId/note", async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const { note } = req.body;
+    if (!note) return res.status(400).json({ error: "note required" });
+    const { status, data } = await smFetch("/order/" + orderId + "/note", {
+      method: "POST",
+      body: JSON.stringify({ note })
+    });
+    res.json({ ok: status >= 200 && status < 300, smStatus: status, data: data.data, message: data.message });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
