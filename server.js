@@ -152,7 +152,7 @@ app.post("/api/order/:orderId/recommendations", async (req, res) => {
       const note = finding.note ? "Tech note: " + finding.note : "";
       const partRes = await smFetch("/order/" + orderId + "/service/" + serviceId + "/part", {
         method: "POST",
-        body: JSON.stringify([{ name: label, partNumber: "", retailPrice: 0, wholesalePrice: 0, quantity: 1, note, taxable: false }])
+        body: JSON.stringify({ name: label, partNumber: "", retailPrice: 0, wholesalePrice: 0, quantity: 1, note, taxable: false })
       });
       results.push({ label, success: partRes.status >= 200 && partRes.status < 300, smStatus: partRes.status });
     }
