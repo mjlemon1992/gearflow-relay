@@ -25,9 +25,17 @@ async function smFetch(path, options = {}) {
 app.get("/api/order/debug", async (req, res) => {
   try {
     const number = req.query.number;
-    const { status, data } = await smFetch("/order?filter=number%3D%3D" + encodeURIComponent(number));
-    const order = data && data.data && data.data[0];
-    res.json({ status, order });
+    const attempts = {};
+    const filters = [
+      ["number==", "/order?filter=number%3D%3D" + encodeURIComponent(number)],
+      ["externalNumber==", "/order?filter=externalNumber%3D%3D" + encodeURIComponent(number)],
+      ["number==-", "/order?filter=number%3D%3D" + encodeURIComponent("-" + number)],
+    ];
+    for (const [label, path] of filters) {
+      const { status, data } = await smFetch(path);
+      attempts[label] = { status, count: data && data.data ? data.data.length : 0, sample: data && data.data && data.data[0] ? { id: data.data[0].id, number: data.data[0].number, externalNumber: data.data[0].externalNumber, generatedVehicleName: data.data[0].generatedVehicleName } : null };
+    }
+    res.json({ attempts });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -37,13 +45,25 @@ app.get("/api/order/lookup", async (req, res) => {
   try {
     const number = req.query.number;
     if (!number) return res.status(400).json({ error: "number required" });
-    const { status, data } = await smFetch("/order?filter=number%3D%3D" + encodeURIComponent(number));
-    const order = data && data.data && data.data[0];
-    if (!order) {
-      const sample = await smFetch("/order?limit=1");
-      const s = sample.data && sample.data.data && sample.data.data[0];
-      return res.json({ found: false, smStatus: status, sampleFields: s ? { id: s.id, number: s.number } : null });
+
+    let order = null;
+    const filters = [
+      "/order?filter=number%3D%3D" + encodeURIComponent(number),
+      "/order?filter=externalNumber%3D%3D" + encodeURIComponent(number),
+      "/order?filter=number%3D%3D" + encodeURIComponent("-" + number),
+    ];
+    for (const path of filters) {
+      const { data } = await smFetch(path);
+      if (data && data.data && data.data.length > 0) {
+        order = data.data[0];
+        break;
+      }
     }
+
+    if (!order) {
+      return res.json({ found: false });
+    }
+
     const genVehicle = order.generatedVehicleName || "";
     const yearMatch = genVehicle.match(/^(\d{4})/);
     const year = yearMatch ? yearMatch[1] : "";
