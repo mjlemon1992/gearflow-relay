@@ -25,23 +25,9 @@ async function smFetch(path, options = {}) {
 app.get("/api/order/debug", async (req, res) => {
   try {
     const number = req.query.number;
-    const w1 = await smFetch("/order?where=" + encodeURIComponent(JSON.stringify({number: number})) + "&limit=5");
-    const w2 = await smFetch("/order?where=" + encodeURIComponent(JSON.stringify({number: parseInt(number)})) + "&limit=5");
-    const w3 = await smFetch("/order?q=" + encodeURIComponent(number) + "&limit=50");
-    res.json({
-      where_string: {
-        count: w1.data && w1.data.data ? w1.data.data.length : 0,
-        first: w1.data && w1.data.data && w1.data.data[0] ? {number: w1.data.data[0].number, vehicle: w1.data.data[0].generatedVehicleName} : null
-      },
-      where_int: {
-        count: w2.data && w2.data.data ? w2.data.data.length : 0,
-        first: w2.data && w2.data.data && w2.data.data[0] ? {number: w2.data.data[0].number, vehicle: w2.data.data[0].generatedVehicleName} : null
-      },
-      q_search: {
-        count: w3.data && w3.data.data ? w3.data.data.length : 0,
-        match: w3.data && w3.data.data ? w3.data.data.find(o => String(o.number) === String(number)) : null
-      }
-    });
+    const { status, data } = await smFetch("/order?filter=number%3D%3D" + encodeURIComponent(number));
+    const order = data && data.data && data.data[0];
+    res.json({ status, order });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -51,22 +37,15 @@ app.get("/api/order/lookup", async (req, res) => {
   try {
     const number = req.query.number;
     if (!number) return res.status(400).json({ error: "number required" });
-    let order = null;
-    const w1 = await smFetch("/order?where=" + encodeURIComponent(JSON.stringify({number: number})) + "&limit=5");
-    if (w1.data && w1.data.data) order = w1.data.data.find(o => String(o.number) === String(number));
+    const { status, data } = await smFetch("/order?filter=number%3D%3D" + encodeURIComponent(number));
+    const order = data && data.data && data.data[0];
     if (!order) {
-      const w2 = await smFetch("/order?where=" + encodeURIComponent(JSON.stringify({number: parseInt(number)})) + "&limit=5");
-      if (w2.data && w2.data.data) order = w2.data.data.find(o => String(o.number) === String(number));
+      const sample = await smFetch("/order?limit=1");
+      const s = sample.data && sample.data.data && sample.data.data[0];
+      return res.json({ found: false, smStatus: status, sampleFields: s ? { id: s.id, number: s.number } : null });
     }
-    if (!order) {
-      const w3 = await smFetch("/order?q=" + encodeURIComponent(number) + "&limit=50");
-      if (w3.data && w3.data.data) order = w3.data.data.find(o => String(o.number) === String(number) || String(o.externalNumber) === String(number));
-    }
-    if (!order) return res.json({ found: false });
-    const genVehicle = order.generatedVehicleName || "";
-    const yearMatch = genVehicle.match(/^(\d{4})/);
-    const year = yearMatch ? yearMatch[1] : "";
-    res.json({ found: true, orderId: order.id, number: order.number, vehicle: genVehicle, year, customer: order.generatedCustomerName || "" });
+    const v = order.vehicle || {};
+    res.json({ found: true, orderId: order.id, number: order.number, vehicle: [v.year, v.make, v.model].filter(Boolean).join(" "), year: String(v.year || "") });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -74,9 +53,9 @@ app.get("/api/order/lookup", async (req, res) => {
 
 app.get("/api/order/:orderId/services", async (req, res) => {
   try {
-    const { data } = await smFetch("/order/" + req.params.orderId + "/service");
+    const { status, data } = await smFetch("/order/" + req.params.orderId + "/service");
     const services = (data.data || []).map(s => ({ id: s.id, name: s.name || s.laborName || "Unnamed", laborPrice: s.laborPrice || 0 }));
-    res.json({ found: true, services });
+    res.json({ found: true, smStatus: status, services });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
