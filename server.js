@@ -25,7 +25,7 @@ async function smFetch(path, options = {}) {
 }
 
 app.get("/health", (req, res) => {
-  res.json({ ok: true, version: "2.1", ros: Object.keys(roStore).length });
+  res.json({ ok: true, version: "2.2", ros: Object.keys(roStore).length });
 });
 
 // ── RO STORAGE ENDPOINTS ──────────────────────────────────────────────
@@ -231,21 +231,24 @@ app.post("/api/order/:orderId/recommendations", async (req, res) => {
       return res.json({ ok: false, message: "No findings to push" });
     }
 
-    // Create "Recommendations" service line
+    // Create "Recommendations" service line - Shopmonkey requires array
     const svcRes = await smFetch("/order/" + orderId + "/service", {
       method: "POST",
-      body: JSON.stringify({
+      body: JSON.stringify([{
         name: "Recommendations - Removal Inspection",
         laborPrice: 0,
         note: "Auto-generated from GearFlow Stage 1 inspection"
-      })
+      }])
     });
 
     if (svcRes.status < 200 || svcRes.status >= 300) {
       return res.status(500).json({ ok: false, message: "Failed to create service line", smStatus: svcRes.status, detail: svcRes.data });
     }
 
-    const serviceId = svcRes.data && svcRes.data.data && svcRes.data.data.id;
+    const serviceId = svcRes.data && (
+      (svcRes.data.data && Array.isArray(svcRes.data.data) && svcRes.data.data[0] && svcRes.data.data[0].id) ||
+      (svcRes.data.data && svcRes.data.data.id)
+    );
     if (!serviceId) {
       return res.status(500).json({ ok: false, message: "No service ID returned", detail: svcRes.data });
     }
@@ -257,7 +260,7 @@ app.post("/api/order/:orderId/recommendations", async (req, res) => {
       const note = finding.note ? "Tech note: " + finding.note : "";
       const partRes = await smFetch("/order/" + orderId + "/service/" + serviceId + "/part", {
         method: "POST",
-        body: JSON.stringify({
+        body: JSON.stringify([{
           name: label,
           partNumber: "",
           retailPrice: 0,
@@ -265,7 +268,7 @@ app.post("/api/order/:orderId/recommendations", async (req, res) => {
           quantity: 1,
           note,
           taxable: false
-        })
+        }])
       });
       results.push({
         label,
