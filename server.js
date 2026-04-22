@@ -27,13 +27,14 @@ app.get("/api/order/debug", async (req, res) => {
     const number = req.query.number;
     const attempts = {};
     const filters = [
-      ["number==", "/order?filter=number%3D%3D" + encodeURIComponent(number)],
-      ["externalNumber==", "/order?filter=externalNumber%3D%3D" + encodeURIComponent(number)],
-      ["number==-", "/order?filter=number%3D%3D" + encodeURIComponent("-" + number)],
+      ["q=number", "/order?q=" + encodeURIComponent(number) + "&limit=5"],
+      ["search", "/order?search=" + encodeURIComponent(number) + "&limit=5"],
+      ["number eq", "/order?filter=number+eq+" + encodeURIComponent(number) + "&limit=5"],
+      ["number contains", "/order?filter=number+contains+" + encodeURIComponent(number) + "&limit=5"],
     ];
     for (const [label, path] of filters) {
       const { status, data } = await smFetch(path);
-      attempts[label] = { status, count: data && data.data ? data.data.length : 0, sample: data && data.data && data.data[0] ? { id: data.data[0].id, number: data.data[0].number, externalNumber: data.data[0].externalNumber, generatedVehicleName: data.data[0].generatedVehicleName } : null };
+      attempts[label] = { status, count: data && data.data ? data.data.length : 0, first: data && data.data && data.data[0] ? { number: data.data[0].number, vehicle: data.data[0].generatedVehicleName } : null };
     }
     res.json({ attempts });
   } catch (e) {
@@ -46,22 +47,19 @@ app.get("/api/order/lookup", async (req, res) => {
     const number = req.query.number;
     if (!number) return res.status(400).json({ error: "number required" });
 
-    let order = null;
-    const filters = [
-      "/order?filter=number%3D%3D" + encodeURIComponent(number),
-      "/order?filter=externalNumber%3D%3D" + encodeURIComponent(number),
-      "/order?filter=number%3D%3D" + encodeURIComponent("-" + number),
-    ];
-    for (const path of filters) {
-      const { data } = await smFetch(path);
-      if (data && data.data && data.data.length > 0) {
-        order = data.data[0];
-        break;
-      }
-    }
+    // Search using q parameter and then filter client-side
+    const { data } = await smFetch("/order?q=" + encodeURIComponent(number) + "&limit=20");
+    const orders = data && data.data ? data.data : [];
+    
+    // Find exact match
+    const order = orders.find(o => 
+      String(o.number) === String(number) ||
+      String(o.number) === "-" + number ||
+      String(o.externalNumber) === String(number)
+    );
 
     if (!order) {
-      return res.json({ found: false });
+      return res.json({ found: false, searched: orders.length });
     }
 
     const genVehicle = order.generatedVehicleName || "";
