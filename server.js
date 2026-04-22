@@ -27,14 +27,18 @@ app.get("/api/order/debug", async (req, res) => {
     const number = req.query.number;
     const attempts = {};
     const filters = [
-      ["q=number", "/order?q=" + encodeURIComponent(number) + "&limit=5"],
-      ["search", "/order?search=" + encodeURIComponent(number) + "&limit=5"],
-      ["number eq", "/order?filter=number+eq+" + encodeURIComponent(number) + "&limit=5"],
-      ["number contains", "/order?filter=number+contains+" + encodeURIComponent(number) + "&limit=5"],
+      ["where number", "/order?where=" + encodeURIComponent(JSON.stringify({number: number})) + "&limit=5"],
+      ["where number int", "/order?where=" + encodeURIComponent(JSON.stringify({number: parseInt(number)})) + "&limit=5"],
+      ["ids search", "/order/search?limit=5"],
+      ["q param", "/order?q=" + encodeURIComponent(number) + "&limit=5"],
     ];
     for (const [label, path] of filters) {
-      const { status, data } = await smFetch(path);
-      attempts[label] = { status, count: data && data.data ? data.data.length : 0, first: data && data.data && data.data[0] ? { number: data.data[0].number, vehicle: data.data[0].generatedVehicleName } : null };
+      try {
+        const { status, data } = await smFetch(path);
+        attempts[label] = { status, count: data && data.data ? data.data.length : 0, first: data && data.data && data.data[0] ? { number: data.data[0].number, externalNumber: data.data[0].externalNumber, vehicle: data.data[0].generatedVehicleName } : null, error: data && data.message };
+      } catch(e) {
+        attempts[label] = { error: e.message };
+      }
     }
     res.json({ attempts });
   } catch (e) {
@@ -47,19 +51,29 @@ app.get("/api/order/lookup", async (req, res) => {
     const number = req.query.number;
     if (!number) return res.status(400).json({ error: "number required" });
 
-    // Search using q parameter and then filter client-side
-    const { data } = await smFetch("/order?q=" + encodeURIComponent(number) + "&limit=20");
-    const orders = data && data.data ? data.data : [];
-    
-    // Find exact match
-    const order = orders.find(o => 
-      String(o.number) === String(number) ||
-      String(o.number) === "-" + number ||
-      String(o.externalNumber) === String(number)
-    );
+    // Try where filter with JSON
+    const whereNum = "/order?where=" + encodeURIComponent(JSON.stringify({number: number})) + "&limit=5";
+    const { data: d1 } = await smFetch(whereNum);
+    let order = d1 && d1.data && d1.data.find(o => String(o.number) === String(number));
+
+    // Try as integer
+    if (!order) {
+      const whereInt = "/order?where=" + encodeURIComponent(JSON.stringify({number: parseInt(number)})) + "&limit=5";
+      const { data: d2 } = await smFetch(whereInt);
+      order = d2 && d2.data && d2.data.find(o => String(o.number) === String(number));
+    }
+
+    // Try q search and filter client side
+    if (!order) {
+      const { data: d3 } = await smFetch("/order?q=" + encodeURIComponent(number) + "&limit=50");
+      order = d3 && d3.data && d3.data.find(o => 
+        String(o.number) === String(number) ||
+        String(o.externalNumber) === String(number)
+      );
+    }
 
     if (!order) {
-      return res.json({ found: false, searched: orders.length });
+      return res.json({ found: false });
     }
 
     const genVehicle = order.generatedVehicleName || "";
@@ -87,13 +101,3 @@ app.post("/api/order/:orderId/service/:serviceId/part", async (req, res) => {
     const { orderId, serviceId } = req.params;
     const { name, partNumber, retailPrice, quantity, note } = req.body;
     const { status, data } = await smFetch("/order/" + orderId + "/service/" + serviceId + "/part", {
-      method: "POST",
-      body: JSON.stringify({ name, partNumber: partNumber || "", retailPrice: retailPrice || 0, wholesalePrice: retailPrice || 0, quantity: quantity || 1, note: note || "", taxable: true })
-    });
-    res.json({ success: status >= 200 && status < 300, smStatus: status, data: data.data, message: data.message });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-app.listen(PORT, () => console.log("GearFlow Relay on port " + PORT));
