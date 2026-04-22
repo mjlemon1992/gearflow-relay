@@ -10,6 +10,9 @@ app.use(express.json());
 
 const roStore = {};
 
+// Shopmonkey statuses that mean the job is done
+const CLOSED_STATUSES = ["Invoice", "Closed", "Void", "Completed"];
+
 async function smFetch(path, options = {}) {
   const res = await fetch(SM_BASE + path, {
     ...options,
@@ -24,8 +27,10 @@ async function smFetch(path, options = {}) {
 }
 
 app.get("/health", (req, res) => {
-  res.json({ ok: true, version: "2.3", ros: Object.keys(roStore).length });
+  res.json({ ok: true, version: "3.0", ros: Object.keys(roStore).length });
 });
+
+// ── RO STORAGE ────────────────────────────────────────────────────────
 
 app.post("/api/ro/:roNumber/save", (req, res) => {
   try {
@@ -44,14 +49,43 @@ app.get("/api/ro/:roNumber/load", (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.get("/api/ro/list", (req, res) => {
+// List ROs - checks Shopmonkey status and filters out closed orders
+app.get("/api/ro/list", async (req, res) => {
   try {
-    const list = Object.values(roStore).map(r => ({
-      roNumber: r.roNumber, vehicle: r.vehicle || "", trans: r.trans || "", stage: r.stage || "ro", updatedAt: r.updatedAt
-    })).sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+    const all = Object.values(roStore).sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+    const list = [];
+    for (const r of all) {
+      let smStatus = null;
+      let closed = false;
+      if (r.orderId) {
+        try {
+          const { data } = await smFetch("/order/" + r.orderId);
+          const order = data && data.data;
+          if (order) {
+            smStatus = order.status;
+            closed = CLOSED_STATUSES.includes(order.status) && order.invoiced === true && order.paid === true;
+          }
+        } catch (e) { /* ignore - include RO if we can't check */ }
+      }
+      if (!closed) {
+        list.push({
+          roNumber: r.roNumber,
+          vehicle: r.vehicle || "",
+          trans: r.trans || "",
+          stage: r.stage || "ro",
+          updatedAt: r.updatedAt,
+          smStatus
+        });
+      } else {
+        // Remove closed ROs from store
+        delete roStore[r.roNumber];
+      }
+    }
     res.json({ list });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+
+// ── SHOPMONKEY LOOKUP ─────────────────────────────────────────────────
 
 app.get("/api/order/debug", async (req, res) => {
   try {
@@ -110,6 +144,60 @@ app.get("/api/order/:orderId/services", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── PUSH PARTS — auto-creates "Overhaul Transmission" service line ────
+app.post("/api/order/:orderId/push-parts", async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const { parts } = req.body; // array of { name, partNumber, retailPrice, supplier }
+
+    if (!parts || parts.length === 0) return res.json({ ok: false, message: "No parts to push" });
+
+    // Always create a fresh "Overhaul Transmission" service line
+    const svcRes = await smFetch("/order/" + orderId + "/service", {
+      method: "POST",
+      body: JSON.stringify([{
+        name: "Overhaul Transmission",
+        laborPrice: 0,
+        note: "Parts added via GearFlow Strip Down"
+      }])
+    });
+
+    if (svcRes.status < 200 || svcRes.status >= 300) {
+      return res.status(500).json({ ok: false, message: "Failed to create service line", smStatus: svcRes.status, detail: svcRes.data });
+    }
+
+    const d = svcRes.data && svcRes.data.data;
+    const serviceId = d && (
+      (d.services && d.services[0] && d.services[0].id) ||
+      (Array.isArray(d) && d[0] && d[0].id) ||
+      d.id
+    );
+
+    if (!serviceId) return res.status(500).json({ ok: false, message: "No service ID returned", detail: svcRes.data });
+
+    // Add each part
+    const results = [];
+    for (const part of parts) {
+      const partRes = await smFetch("/order/" + orderId + "/service/" + serviceId + "/part", {
+        method: "POST",
+        body: JSON.stringify({
+          name: part.name,
+          partNumber: part.partNumber || "",
+          retailPrice: part.retailPrice || 0,
+          wholesalePrice: part.retailPrice || 0,
+          quantity: 1,
+          note: part.supplier ? "Supplier: " + part.supplier : "",
+          taxable: true
+        })
+      });
+      results.push({ name: part.name, success: partRes.status >= 200 && partRes.status < 300, smStatus: partRes.status });
+    }
+
+    res.json({ ok: true, serviceId, serviceName: "Overhaul Transmission", results });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Keep old part endpoint for backwards compatibility
 app.post("/api/order/:orderId/service/:serviceId/part", async (req, res) => {
   try {
     const { orderId, serviceId } = req.params;
@@ -122,6 +210,7 @@ app.post("/api/order/:orderId/service/:serviceId/part", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── PUSH RECOMMENDATIONS ──────────────────────────────────────────────
 app.post("/api/order/:orderId/recommendations", async (req, res) => {
   try {
     const { orderId } = req.params;
@@ -143,7 +232,6 @@ app.post("/api/order/:orderId/recommendations", async (req, res) => {
       (Array.isArray(d) && d[0] && d[0].id) ||
       d.id
     );
-
     if (!serviceId) return res.status(500).json({ ok: false, message: "No service ID returned", detail: svcRes.data });
 
     const results = [];
@@ -160,4 +248,4 @@ app.post("/api/order/:orderId/recommendations", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.listen(PORT, () => console.log("GearFlow Relay v2.3 on port " + PORT));
+app.listen(PORT, () => console.log("GearFlow Relay v3.0 on port " + PORT));
