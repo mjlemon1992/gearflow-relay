@@ -44,8 +44,11 @@ app.get("/api/order/lookup", async (req, res) => {
       const s = sample.data && sample.data.data && sample.data.data[0];
       return res.json({ found: false, smStatus: status, sampleFields: s ? { id: s.id, number: s.number } : null });
     }
-    const v = order.vehicle || {};
-    res.json({ found: true, orderId: order.id, number: order.number, vehicle: [v.year, v.make, v.model].filter(Boolean).join(" "), year: String(v.year || "") });
+    const genVehicle = order.generatedVehicleName || "";
+    const yearMatch = genVehicle.match(/^(\d{4})/);
+    const year = yearMatch ? yearMatch[1] : "";
+    const customer = order.generatedCustomerName || "";
+    res.json({ found: true, orderId: order.id, number: order.number, vehicle: genVehicle, year, customer });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
