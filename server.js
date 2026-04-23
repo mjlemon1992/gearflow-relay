@@ -148,7 +148,7 @@ app.get("/api/order/:orderId/services", async (req, res) => {
 app.post("/api/order/:orderId/push-parts", async (req, res) => {
   try {
     const { orderId } = req.params;
-    const { parts } = req.body; // array of { name, partNumber, retailPrice, supplier }
+    const { parts, failureNote } = req.body; // array of { name, partNumber, retailPrice, supplier }
 
     if (!parts || parts.length === 0) return res.json({ ok: false, message: "No parts to push" });
 
@@ -158,7 +158,7 @@ app.post("/api/order/:orderId/push-parts", async (req, res) => {
       body: JSON.stringify([{
         name: "Overhaul Transmission",
         laborPrice: 0,
-        note: "Parts added via GearFlow Strip Down"
+        note: failureNote ? "Reason for Failure: " + failureNote + "\n\nParts added via GearFlow Strip Down" : "Parts added via GearFlow Strip Down"
       }])
     });
 
