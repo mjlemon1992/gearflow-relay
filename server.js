@@ -96,6 +96,29 @@ app.get("/api/ro/list", async (req, res) => {
 
 // ── SHOPMONKEY LOOKUP ─────────────────────────────────────────────────
 
+
+app.post("/api/ai", async (req, res) => {
+  try {
+    const { system, prompt, max_tokens } = req.body;
+    const r = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": process.env.ANTHROPIC_API_KEY || "",
+        "anthropic-version": "2023-06-01"
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: max_tokens || 800,
+        system,
+        messages: [{ role: "user", content: prompt }]
+      })
+    });
+    const data = await r.json();
+    res.json({ ok: r.ok, content: data.content, error: data.error });
+  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+
 app.get("/api/order/debug", async (req, res) => {
   try {
     const number = req.query.number;
