@@ -50,6 +50,15 @@ app.get("/api/ro/:roNumber/load", (req, res) => {
 });
 
 // List ROs - checks Shopmonkey status and filters out closed orders
+
+app.delete("/api/ro/:roNumber/delete", (req, res) => {
+  try {
+    const { roNumber } = req.params;
+    delete roStore[roNumber];
+    res.json({ ok: true, roNumber });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get("/api/ro/list", async (req, res) => {
   try {
     const all = Object.values(roStore).sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
